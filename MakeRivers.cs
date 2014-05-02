@@ -13,39 +13,41 @@ namespace BezierRivers
     {
         public Node()
         {
-
+            _children_ = new List<Node>();
+            maxTailLength = 1;
         }
 
         public Node(Point myCoords)
         {
-            coords = myCoords;
-            __children__ = new List<Node>();
+            center_coords = myCoords;
+            _children_ = new List<Node>();
             maxTailLength = 1;
         }
 
         public int numChildren()
         {
-            return __children__.Count();
+            return _children_.Count();
         }
 
         public int maxTailLength;
         public int maxLengthIndex; // The index of the tail that is the longest.
-        public Point coords; // The coordinates of the current water tile.
+        public Point center_coords; // The coordinates of the current water tile, by center
+        public Point edge_coords; // The coordinates of the current water tile, by edge
 
         // Travel the nodes, choosing the longest path.
         // Calling this on the base node effectively updates the entire tree.
         public int getMaxTailLength()
         {
-            if (__children__.Count() == 0)
+            if (_children_.Count() == 0)
                 maxTailLength = 1;
             else
             {
-                int maxlength = __children__[0].getMaxTailLength();
+                int maxlength = _children_[0].getMaxTailLength();
                 int index = 0;
-                for (int i = 1; i < __children__.Count(); i++)
-                    if (__children__[i].getMaxTailLength() > maxlength)
+                for (int i = 1; i < _children_.Count(); i++)
+                    if (_children_[i].getMaxTailLength() > maxlength)
                     {
-                        maxlength = __children__[i].maxTailLength;
+                        maxlength = _children_[i].maxTailLength;
                         index = i;
                     }
                         
@@ -57,13 +59,13 @@ namespace BezierRivers
         }
 
         // Do not edit directly.
-        public List<Node> __children__; // int is the length of the trailing node. 
+        public List<Node> _children_; // int is the length of the trailing node. 
 
         public Node parent;
         public void insertChild(Node child)
         {
             child.parent = this;
-            __children__.Add(child);
+            _children_.Add(child);
         }
 
     }
@@ -141,19 +143,11 @@ namespace BezierRivers
 
             DateTime end1 = DateTime.Now;
             Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).Milliseconds);
-            render(result, "output.png", xtiles, ytiles, scale);
+            render(result, "output.png", xtiles, ytiles, scale, true);
             DateTime end2 = DateTime.Now;
             Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).Milliseconds);
-            //Graphics g = Graphics.FromImage(output);
 
-            /*
-            Pen pen = new Pen(Color.FromArgb(0, 0, 0), 1.0f);
-            Point p1 = new Point(32, 32);
-            Point p2 = new Point(100, 100);
-            Point p3 = new Point(57, 59);
-            Point p4 = new Point(94, 10);
-            g.DrawCurve(pen, new Point[] {p1, p2, p3, p4});
-            output.Save("test.png");*/
+            Console.ReadKey();
         }
 
         struct processedResults
@@ -263,6 +257,13 @@ namespace BezierRivers
             foreach (Node n in rivers)
                 n.getMaxTailLength();
 
+
+            ////// TEST: FUNCTION TO MOVE VERTEXES TO EDGE FROM CENTER SEMI-RECURSIVELY
+            for (int i = 0; i < rivers.Count; i++)
+            {
+                startTranslate(rivers[i]);
+            }
+
             processedResults prout = new processedResults();
             prout.rivers = rivers;
             prout.oceans = oceans;
@@ -270,7 +271,64 @@ namespace BezierRivers
             return prout;
         }
 
-        static void render(processedResults pr, string filename, int width, int height, int scale)
+        static Point edgifyNodes(Node n1, Node n2)
+        {
+            Point p1 = n1.center_coords;
+            Point p2 = n2.center_coords;
+            Point p3 = new Point();
+            if (p1.X == p2.X && p1.Y != p2.Y)
+            {
+                p3.X = p1.X;
+                p3.Y = (p1.Y + p2.Y) / 2;
+            }
+            else if (p1.X != p2.X && p1.Y == p2.Y)
+            {
+                p3.X = (p1.X + p2.X) / 2;
+                p3.Y = p1.Y;
+            }
+            else
+                throw new InvalidOperationException("Node n1 and n2 are equal or at diagonals to each other.");
+
+            return p3;
+        }
+
+        // Semi-recursive function to move all points in a river tree to the edges from the centers.
+        static void recursiveTranslate(Node previous, Node next, int depth)
+        {
+            Node current = previous;
+            Node following = next;
+
+            following.edge_coords = edgifyNodes(current, following);
+            current = following;
+            while (current._children_.Count == 1) // Don't call the recursive function needlessly if there's no need to
+            {
+                following = current._children_[0];
+                following.edge_coords = edgifyNodes(current, following);
+                current = following;
+            }
+            if (depth > 100)
+                Console.ReadKey();
+            // At this point, either this has more than 1 child or has no children
+            if (current._children_.Count > 1)
+            {
+                startTranslate(current, depth + 1);
+                /*for (int i = 0; i < current._children_.Count; i++)
+                {
+                    recursiveTranslate(current, current._children_[i], depth+1);
+                }*/
+            }
+
+        }
+
+        static void startTranslate(Node parent, int depth = 0)
+        {
+            if (parent._children_.Count == 0)
+                return;
+            for (int i = 0; i < parent._children_.Count; i++)
+                recursiveTranslate(parent, parent._children_[i], depth);
+        }
+
+        static void render(processedResults pr, string filename, int width, int height, int scale, bool edges = false)
         {
             List<Node> rivers = pr.rivers;
             List<Point> oceans = pr.oceans;
@@ -288,24 +346,32 @@ namespace BezierRivers
                 List<Point> points = new List<Point>();
                 Node current = rendernodes.First();
                 rendernodes.Remove(current);
-                points.Add(current.coords); // Initially add the coords to the list.
+
+                // Initially add the coords to the list.
+                points.Add(current.center_coords); // Always starts with the center coords, because the first tile never gets an edge coord set.
 
                 while (current.numChildren() > 0)
                 {                    
                     int largestIndex = current.maxLengthIndex; 
                     // Except for the largest index, add every other child node to the rendernodes list as a separate branch.
-                    for (int i = 0; i < current.__children__.Count; i++)
+                    for (int i = 0; i < current._children_.Count; i++)
                     {
                         if (largestIndex != i)
                         {
-                            Node newparent = new Node(current.coords);
-                            newparent.insertChild(current.__children__[i]);
+                            Node newparent = new Node();
+                            newparent.center_coords = current.center_coords;
+                            newparent.edge_coords = current.edge_coords;
+                            newparent.insertChild(current._children_[i]);
                             newparent.getMaxTailLength();
                             rendernodes.Add(newparent);
                         }
                     }
-                    current = current.__children__[largestIndex]; // Finally, change the current to point to the new node.
-                    points.Add(current.coords); // Also, extend the pointslist.
+                    current = current._children_[largestIndex]; // Finally, change the current to point to the new node.
+
+                    if (edges)
+                        points.Add(current.edge_coords);
+                    else
+                        points.Add(current.center_coords); // Also, extend the pointslist.
                 }
 
                 curvepoints.Add(points);
@@ -343,14 +409,14 @@ namespace BezierRivers
                     points[i].Y += scale/2;
 
                     // Experimental: Add noise to coordinates.
-                    points[i].X += rng.Next(-scale / 5, scale / 5);
-                    points[i].Y += rng.Next(-scale / 5, scale / 5);
+                    //points[i].X += rng.Next(-scale / 5, scale / 5);
+                    //points[i].Y += rng.Next(-scale / 5, scale / 5);
                 }
 
                 if (pointlist.Count == 1)
                     g.DrawRectangle(pen, new Rectangle(points[0].X, points[0].Y, scale, scale));
                 else
-                    g.DrawCurve(pen, points, 0.8f);
+                    g.DrawCurve(pen, points, 0.5f);
             }
 
             output.Save(filename);
