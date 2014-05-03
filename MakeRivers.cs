@@ -215,7 +215,7 @@ namespace BezierRivers
             processOceanToRiver(oceans, rivers, done);
 
             // Build rivers that start from lakes!
-            //processLakeToRiver(lakes, done);
+            processLakeToRiver(lakes, rivers, done);
 
             // Update tail length counts.
             foreach (Node n in rivers)
@@ -327,32 +327,40 @@ namespace BezierRivers
             }
         }
 
-        void processLakeToRiver(List<Point> lakes, HashSet<Point> done)
+        void processLakeToRiver(List<Point> lakes, List<Node> rivers, HashSet<Point> done)
         {
-            List<Point> possibleRiver = new List<Point>();
+            List<Tuple<Point, Point>> possibleRiver = new List<Tuple<Point, Point>>();
 
-            // Add all the lake tiles that border a river to possibleRiver
+            // Add (lake tile, river tile) tuple to possibleRiver.
             foreach (Point lake in lakes)
                 foreach (Point dP in neighbors)
                 {
                     Point neighbor = dP + (Size)lake;
                     if (isRiver(neighbor))
                     {
-                        possibleRiver.Add(lake);
+                        possibleRiver.Add(new Tuple<Point,Point>(lake, neighbor));
                         break;
                     }
                 }
 
-            foreach (Point pt in possibleRiver)
+            foreach (Tuple<Point, Point> pts in possibleRiver)
             {
                 Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>();
+                Node parent = new Node(pts.Item1);
+                parent.insertChild(new Node(pts.Item2));
+                Point coords = parent._children_[0].center_coords;
                 foreach (Point dP in neighbors)
                 {
-                    Point neighbor = dP + (Size)pt;
-                    if (isRiver(neighbor))
-                        ;
+                    Point neighbor = dP + (Size)coords;
+                    if (neighbor != pts.Item1) // Make sure not to double back on the origin lake tile.
+                        treeWorking[neighbor] = parent._children_[0];
                 }
+                buildRiverTrees(done, treeWorking);
+
+                rivers.Add(parent);
             }
+
+
         }
 
         // Building the actual river tree is identical, whether we start from the ocean or a lake
