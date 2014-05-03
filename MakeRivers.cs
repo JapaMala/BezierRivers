@@ -139,11 +139,11 @@ namespace BezierRivers
                 }
 
             DateTime start = DateTime.Now;
-            var result = process(inarray, xtiles, ytiles);            
+            var result = processOceanToRiver(inarray, xtiles, ytiles);            
 
             DateTime end1 = DateTime.Now;
             Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).Milliseconds);
-            render(result, "output.png", xtiles, ytiles, scale, true);
+            render(result, "output.png", xtiles, ytiles, scale);
             DateTime end2 = DateTime.Now;
             Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).Milliseconds);
 
@@ -160,7 +160,7 @@ namespace BezierRivers
         // TODO: Land-locked rivers
         // TODO?: Add the one river tile connecting ocean and river.
         // TODO: smoother curvier rivers
-        static processedResults process(int[,] input, int width, int height)
+        static processedResults processOceanToRiver(int[,] input, int width, int height)
         {
             HashSet<Point> done = new HashSet<Point>(); // River tiles that have been added to a river tree 
             List<Point> oceans = new List<Point>(); // Tiles that are definitely ocean.
@@ -198,6 +198,7 @@ namespace BezierRivers
 
             // For every land tile neighbor of the Ocean tile, check if there is river. If there is river, add the river point to the working list.
             foreach (Point pt in possibleRiver)
+            {
                 foreach (Point dP in neighbors)
                 {
                     Point neighbor = dP + (Size)pt;
@@ -207,6 +208,8 @@ namespace BezierRivers
                         working.Add(neighbor);
                     }
                 }
+            }
+                
 
             // Finally, let's start building River trees.
             while (working.Count > 0)
@@ -216,14 +219,49 @@ namespace BezierRivers
                 if (done.Contains(basePoint)) // Skip if the point was already touched.
                     continue;
                 done.Add(basePoint); // Mark this point as Done, so future iterations don't accidentally touch it.
-                
-                Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>(); // This working hashset is for building a river tree. The Node is a reference to the parent of this node.
-                // There is no need for a treeDone set because what's done is done.                
-                Node parent = new Node(basePoint);
+
+                Node parent = null;
+
+                // First, find the land tile connecting this river start and the ocean.
                 foreach (Point dP in neighbors)
                 {
-                    treeWorking[dP + (Size)basePoint] = parent;
+                    Point neighbor = dP + (Size)basePoint;
+                    // For each land tile surrounding the start of the ocean, find the nearest ocean tile and go there.
+                    if (input[neighbor.X, neighbor.Y] == IntFromName["land"])
+                        foreach (Point ddP in neighbors)
+                        {
+                            Point neighbor2 = ddP + (Size)neighbor;
+                            if (input[neighbor2.X, neighbor2.Y] == IntFromName["ocean"])
+                            {
+                                parent = new Node(neighbor2);
+                                parent.insertChild(new Node(neighbor));
+                                parent._children_[0].insertChild(new Node(basePoint));
+                                goto exit;
+                            }
+                        }                        
                 }
+                if (parent == null)
+                    parent = new Node(basePoint);
+            exit:
+                Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>(); // This working hashset is for building a river tree. The Node is a reference to the parent of this node.
+                // There is no need for a treeDone set because what's done is done.                
+               
+                
+                // Now, if the parent has children, it means the place we are going to start looking for the river is the third node of the tree.
+                if (parent._children_.Count > 0)
+                {
+                    Node startnode = parent._children_[0]._children_[0];
+                    Point startcoords = startnode.center_coords;
+                    foreach(Point dP in neighbors)
+                    {
+                        treeWorking[dP + (Size)startcoords] = startnode;
+                    }
+                }
+                else
+                    foreach (Point dP in neighbors)
+                    {
+                        treeWorking[dP + (Size)basePoint] = parent;
+                    }
 
                 while (treeWorking.Count > 0) // Next, keep working on tiles until there are no more left to work on.
                 {
@@ -270,6 +308,12 @@ namespace BezierRivers
             prout.lakes = lakes;
             return prout;
         }
+
+        // Building the actual river tree is identical 
+       /* static processedResults buildRiverTrees()
+        {
+
+        }*/
 
         static Point edgifyNodes(Node n1, Node n2)
         {
@@ -379,23 +423,14 @@ namespace BezierRivers
 
             Bitmap output = new Bitmap(width * scale, height * scale);
             Graphics g = Graphics.FromImage(output);
-
             SolidBrush oceanbrush = new SolidBrush(ocean_c);
             SolidBrush landbrush = new SolidBrush(land_c);
             SolidBrush lakebrush = new SolidBrush(lake_c);
 
+            // Draws the land
             g.FillRectangle(landbrush, new Rectangle(0, 0, width * scale, height * scale));
 
-            foreach (var point in oceans)
-            {
-                g.FillRectangle(oceanbrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
-            }
-            foreach (var point in lakes)
-            {
-                g.FillRectangle(lakebrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
-            }
-            
-
+            // Draw rivers
             Pen pen = new Pen(river_c, 5.0f);
             Random rng = new Random();
             foreach (var pointlist in curvepoints)
@@ -409,15 +444,26 @@ namespace BezierRivers
                     points[i].Y += scale/2;
 
                     // Experimental: Add noise to coordinates.
-                    //points[i].X += rng.Next(-scale / 5, scale / 5);
-                    //points[i].Y += rng.Next(-scale / 5, scale / 5);
+                    points[i].X += rng.Next(-scale / 4, scale / 4);
+                    points[i].Y += rng.Next(-scale / 4, scale / 4);
                 }
 
                 if (pointlist.Count == 1)
                     g.DrawRectangle(pen, new Rectangle(points[0].X, points[0].Y, scale, scale));
                 else
-                    g.DrawCurve(pen, points, 0.5f);
+                    g.DrawCurve(pen, points, 0.6f);
             }
+
+            // Finally, draw the oceans and lakes over the rivers to "hide" the ends of the river.
+            foreach (var point in oceans)
+            {
+                g.FillRectangle(oceanbrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
+            }
+            foreach (var point in lakes)
+            {
+                g.FillRectangle(lakebrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
+            }
+
 
             output.Save(filename);
         }
