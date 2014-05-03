@@ -122,33 +122,31 @@ namespace BezierRivers
         static Point[] neighbors = { new Point(0, -1), new Point(0, 1), new Point(-1, 0), new Point(1, 0) }; // top, down, left, right
 
 
+        // scale is the ratio of embark tiles to blocks.
+        MakeRivers(string inputfilename, int Scale = 10)
+        {
+            Bitmap inputFile = new Bitmap(inputfilename);
+            width = inputFile.Width;
+            height = inputFile.Height;
+            scale = Scale;
+            input = new int[width, height];
+
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    Color color = inputFile.GetPixel(x, y);
+                    input[x, y] = IntFromName[NameFromColor[color]];
+                }
+        }
+
+        int[,] input;
+        int scale;
+        int width, height;
+
         static void Main(string[] args)
         {
-            //int tiles = 8;
-            //int scale = 64;
-            Bitmap input = new Bitmap("testinput.png");            
-            int xtiles = input.Width;
-            int ytiles = input.Height;
-            int scale = 10;
-            int[,] inarray = new int[xtiles, ytiles];
-
-            for (int y = 0; y < ytiles; y++)
-                for (int x = 0; x < xtiles; x++)
-                {
-                    Color color = input.GetPixel(x, y);
-                    inarray[x, y] = IntFromName[NameFromColor[color]];
-                }
-
-            DateTime start = DateTime.Now;
-            var result = processOceanToRiver(inarray, xtiles, ytiles);            
-
-            DateTime end1 = DateTime.Now;
-            Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).Milliseconds);
-            render(result, "output.png", xtiles, ytiles, scale);
-            DateTime end2 = DateTime.Now;
-            Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).Milliseconds);
-
-            Console.ReadKey();
+            MakeRivers mr = new MakeRivers("testinput.png");
+            mr.makeRivers();
         }
 
         struct processedResults
@@ -158,16 +156,48 @@ namespace BezierRivers
             public List<Point> lakes;
         }
 
+        bool isRiver(Point coords)
+        {
+            return RiverTypes.Contains(input[coords.X, coords.Y]);
+        }
+
+        bool isOcean(Point coords)
+        {
+            return input[coords.X, coords.Y] == IntFromName["ocean"];
+        }
+
+        bool isLand(Point coords)
+        {
+            return input[coords.X, coords.Y] == IntFromName["land"] || input[coords.X, coords.Y] == IntFromName["mountain"];
+        }
+
+        bool isLake(Point coords)
+        {
+            return input[coords.X, coords.Y] == IntFromName["lake"];
+        }
+
+        void makeRivers()
+        {
+            DateTime start = DateTime.Now;
+            var result = process();
+
+            DateTime end1 = DateTime.Now;
+            Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).Milliseconds);
+            render(result, "output.png");
+            DateTime end2 = DateTime.Now;
+            Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).Milliseconds);
+
+            Console.ReadKey();
+        }
+
         // TODO: Land-locked rivers
         // TODO?: Add the one river tile connecting ocean and river.
         // TODO: smoother curvier rivers
-        static processedResults processOceanToRiver(int[,] input, int width, int height)
+        processedResults process()
         {
             HashSet<Point> done = new HashSet<Point>(); // River tiles that have been added to a river tree 
             List<Point> oceans = new List<Point>(); // Tiles that are definitely ocean.
-            List<Point> lakes = new List<Point>(); // ditto but for lakes
-            List<Point> possibleRiver = new List<Point>(); // Ocean tiles that touch at least one land tile
-            HashSet<Point> working = new HashSet<Point>(); // River tiles that have yet to be added to a tree.
+            List<Point> lakes = new List<Point>(); // ditto but for lakes            
             List<Node> rivers = new List<Node>(); // List of parent nodes of finished river trees.
             // FLOOD FILL AND PUT ALL OCEAN TILES INTO OCEAN LIST
             // LAKES IN THE LAKE LIST
@@ -175,99 +205,17 @@ namespace BezierRivers
             for (int x = 0; x < width; x++)
             {
                 Point current = new Point(x, y);
-                if (input[x, y] == IntFromName["ocean"])
+                if (isOcean(current))
                     oceans.Add(current);
-                else if (input[x, y] == IntFromName["lake"])
+                else if (isLake(current))
                     lakes.Add(current);
             }
 
-            // Move all land tiles bounding ocean tiles to the possibleRiver list.
-            foreach (Point pt in oceans)
-                foreach (Point dP in neighbors)
-                {
-                    Point neighbor = dP + (Size)pt; // Von Neumann neighbors! Because C# does not provide an Addition operator for Point + Point for no good reason, one Point must be cast to Size to get the sum.
-                    // Check bounds first.
-                    if (0 > neighbor.X || width <= neighbor.X || 0 > neighbor.Y || height <= neighbor.Y)
-                        continue;
-                    if (input[neighbor.X, neighbor.Y] == IntFromName["land"])
-                    {
-                        possibleRiver.Add(neighbor);
-                    }
-                }
+            // Build rivers that start from the ocean
+            processOceanToRiver(oceans, rivers, done);
 
-            // For every land tile neighbor of the Ocean tile, check if there is river. If there is river, add the river point to the working list.
-            foreach (Point pt in possibleRiver)
-            {
-                foreach (Point dP in neighbors)
-                {
-                    Point neighbor = dP + (Size)pt;
-                    int type = input[neighbor.X, neighbor.Y];
-                    if (RiverTypes.Contains(type) && !working.Contains(neighbor)) // If it's any kind of river plus it hasn't already been added to the list, because duplicates are bad
-                    {
-                        working.Add(neighbor);
-                    }
-                }
-            }
-                
-
-            // Finally, let's start building River trees.
-            while (working.Count > 0)
-            {
-                Point basePoint = working.First();                    
-                working.Remove(basePoint);
-                if (done.Contains(basePoint)) // Skip if the point was already touched.
-                    continue;
-                done.Add(basePoint); // Mark this point as Done, so future iterations don't accidentally touch it.
-
-                Node parent = null;
-
-                // First, find the land tile connecting this river start and the ocean.
-                foreach (Point dP in neighbors)
-                {
-                    Point neighbor = dP + (Size)basePoint;
-                    // For each land tile surrounding the start of the ocean, find the nearest ocean tile and go there.
-                    if (input[neighbor.X, neighbor.Y] == IntFromName["land"])
-                        foreach (Point ddP in neighbors)
-                        {
-                            Point neighbor2 = ddP + (Size)neighbor;
-                            if (input[neighbor2.X, neighbor2.Y] == IntFromName["ocean"])
-                            {
-                                parent = new Node(neighbor2);
-                                parent.insertChild(new Node(neighbor));
-                                parent._children_[0].insertChild(new Node(basePoint));
-                                goto exit;
-                            }
-                        }                        
-                }
-                if (parent == null)
-                    parent = new Node(basePoint);
-            exit:
-                Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>(); // This working hashset is for building a river tree. The Node is a reference to the parent of this node.
-                // There is no need for a treeDone set because what's done is done.                
-               
-                
-                // Now, if the parent has children, it means the place we are going to start looking for the river is the third node of the tree.
-                if (parent._children_.Count > 0)
-                {
-                    Node startnode = parent._children_[0]._children_[0];
-                    Point startcoords = startnode.center_coords;
-                    foreach(Point dP in neighbors)
-                    {
-                        treeWorking[dP + (Size)startcoords] = startnode;
-                    }
-                }
-                else
-                    foreach (Point dP in neighbors)
-                    {
-                        treeWorking[dP + (Size)basePoint] = parent;
-                    }
-
-                buildRiverTrees(done, treeWorking, input);
-
-                // At this point, the river tree should be fully built. Add the parent node to a list of rivers.
-                rivers.Add(parent);
-            }
-
+            // Build rivers that start from lakes!
+            //processLakeToRiver(lakes, done);
 
             // Update tail length counts.
             foreach (Node n in rivers)
@@ -287,12 +235,129 @@ namespace BezierRivers
             return prout;
         }
 
-       /* static void processLakeToRiver(int[,] input, List<Point> lakes)
+        void processOceanToRiver(List<Point> oceans, List<Node> rivers, HashSet<Point> done)
         {
-            List<Point> possibleRiver;
-        }*/
+            List<Point> possibleRiver = new List<Point>(); // Ocean tiles that touch at least one land tile
+            HashSet<Point> working = new HashSet<Point>(); // River tiles that have yet to be added to a tree.
+
+            // Move all land tiles bounding ocean tiles to the possibleRiver list.
+            foreach (Point pt in oceans)
+                foreach (Point dP in neighbors)
+                {
+                    Point neighbor = dP + (Size)pt; // Von Neumann neighbors! Because C# does not provide an Addition operator for Point + Point for no good reason, one Point must be cast to Size to get the sum.
+                    // Check bounds first.
+                    if (0 > neighbor.X || width <= neighbor.X || 0 > neighbor.Y || height <= neighbor.Y)
+                        continue;
+                    if (isLand(neighbor))
+                    {
+                        possibleRiver.Add(neighbor);
+                    }
+                }
+
+            // For every land tile neighbor of the Ocean tile, check if there is river. If there is river, add the river point to the working list.
+            foreach (Point pt in possibleRiver)
+            {
+                foreach (Point dP in neighbors)
+                {
+                    Point neighbor = dP + (Size)pt;
+                    if (isRiver(neighbor) && !working.Contains(neighbor)) // If it's any kind of river plus it hasn't already been added to the list, because duplicates are bad
+                    {
+                        working.Add(neighbor);
+                    }
+                }
+            }
+
+
+            // Finally, let's start building River trees.
+            while (working.Count > 0)
+            {
+                Point basePoint = working.First();
+                working.Remove(basePoint);
+                if (done.Contains(basePoint)) // Skip if the point was already touched.
+                    continue;
+                done.Add(basePoint); // Mark this point as Done, so future iterations don't accidentally touch it.
+
+                Node parent = null;
+
+                // First, find the land tile connecting this river start and the ocean.
+                foreach (Point dP in neighbors)
+                {
+                    Point neighbor = dP + (Size)basePoint;
+                    // For each land tile surrounding the start of the ocean, find the nearest ocean tile and go there.
+                    if (isLand(neighbor))
+                        foreach (Point ddP in neighbors)
+                        {
+                            Point neighbor2 = ddP + (Size)neighbor;
+                            if (isOcean(neighbor2))
+                            {
+                                parent = new Node(neighbor2);
+                                parent.insertChild(new Node(neighbor));
+                                parent._children_[0].insertChild(new Node(basePoint));
+                                goto exit;
+                            }
+                        }
+                }
+                if (parent == null)
+                    parent = new Node(basePoint);
+            exit:
+                Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>(); // This working hashset is for building a river tree. The Node is a reference to the parent of this node.
+                // There is no need for a treeDone set because what's done is done.                
+
+
+                // Now, if the parent has children, it means the place we are going to start looking for the river is the third node of the tree.
+                if (parent._children_.Count > 0)
+                {
+                    Node startnode = parent._children_[0]._children_[0];
+                    Point startcoords = startnode.center_coords;
+                    foreach (Point dP in neighbors)
+                    {
+                        treeWorking[dP + (Size)startcoords] = startnode;
+                    }
+                }
+                else
+                    foreach (Point dP in neighbors)
+                    {
+                        treeWorking[dP + (Size)basePoint] = parent;
+                    }
+
+                buildRiverTrees(done, treeWorking);
+
+                // At this point, the river tree should be fully built. Add the parent node to a list of rivers.
+                rivers.Add(parent);
+            }
+        }
+
+        void processLakeToRiver(List<Point> lakes, HashSet<Point> done)
+        {
+            List<Point> possibleRiver = new List<Point>();
+
+            // Add all the lake tiles that border a river to possibleRiver
+            foreach (Point lake in lakes)
+                foreach (Point dP in neighbors)
+                {
+                    Point neighbor = dP + (Size)lake;
+                    if (isRiver(neighbor))
+                    {
+                        possibleRiver.Add(lake);
+                        break;
+                    }
+                }
+
+            foreach (Point pt in possibleRiver)
+            {
+                Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>();
+                foreach (Point dP in neighbors)
+                {
+                    Point neighbor = dP + (Size)pt;
+                    if (isRiver(neighbor))
+                        ;
+                }
+            }
+        }
+
         // Building the actual river tree is identical, whether we start from the ocean or a lake
-        static void buildRiverTrees(HashSet<Point> done, Dictionary<Point, Node> treeWorking, int[,] input)
+        // Here, treeWorking contains tiles to investigate for riverness along with the parent node they started from.
+        void buildRiverTrees(HashSet<Point> done, Dictionary<Point, Node> treeWorking)
          {
              while (treeWorking.Count > 0) // Next, keep working on tiles until there are no more left to work on.
                 {
@@ -303,13 +368,13 @@ namespace BezierRivers
                     if (done.Contains(pt))
                         continue;
                     done.Add(pt);
-                    if (input[pt.X, pt.Y] == IntFromName["lake"]) // If it's a lake, add the tile as the final node.
+                    if (isLake(pt)) // If it's a lake, add the tile as the final node.
                     {
                         Node lake = new Node(pt);
                         myParent.insertChild(lake);
                         continue;
                     }
-                    else if (!RiverTypes.Contains(input[pt.X, pt.Y])) // If it's not a river, don't work on it.
+                    else if (!isRiver(pt)) // If it's not a river, don't work on it.
                         continue;
                     // Make new node and add to parent node of this one.
                     Node me = new Node(pt);
@@ -318,7 +383,7 @@ namespace BezierRivers
                     foreach (Point dP in neighbors)
                     {
                         Point neighbor = dP + (Size)pt;
-                        if (RiverTypes.Contains(input[neighbor.X, neighbor.Y]) || input[neighbor.X, neighbor.Y] == IntFromName["lake"])
+                        if (isRiver(neighbor) || isLake(neighbor))
                             treeWorking[neighbor] = me; // Needs to add this node as a reference in the data.                            
                     }                
                 }
@@ -381,7 +446,7 @@ namespace BezierRivers
                 recursiveTranslate(parent, parent._children_[i], depth);
         }
 
-        static void render(processedResults pr, string filename, int width, int height, int scale, bool edges = false)
+        void render(processedResults pr, string filename, bool edges = false)
         {
             List<Node> rivers = pr.rivers;
             List<Point> oceans = pr.oceans;
