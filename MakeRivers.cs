@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Drawing;
+using System.Runtime.InteropServices;
+
 
 namespace BezierRivers
 {
@@ -123,7 +125,7 @@ namespace BezierRivers
 
 
         // scale is the ratio of embark tiles to blocks.
-        MakeRivers(string inputfilename, int Scale = 10)
+        MakeRivers(string inputfilename, int Scale = 8)
         {
             Bitmap inputFile = new Bitmap(inputfilename);
             width = inputFile.Width;
@@ -158,7 +160,9 @@ namespace BezierRivers
 
         bool isRiver(Point coords)
         {
-            return RiverTypes.Contains(input[coords.X, coords.Y]);
+            if (0 <= coords.X && coords.X < width && 0 <= coords.Y && coords.Y < height)
+                return RiverTypes.Contains(input[coords.X, coords.Y]);
+            return false;
         }
 
         bool isOcean(Point coords)
@@ -182,11 +186,10 @@ namespace BezierRivers
             var result = process();
 
             DateTime end1 = DateTime.Now;
-            Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).Milliseconds);
-            render(result, "output.png");
+            Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).TotalMilliseconds);
+            var arrayout = render(result, "output.png");
             DateTime end2 = DateTime.Now;
-            Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).Milliseconds);
-
+            Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).TotalMilliseconds);
             Console.ReadKey();
         }
 
@@ -216,6 +219,9 @@ namespace BezierRivers
 
             // Build rivers that start from lakes!
             processLakeToRiver(lakes, rivers, done);
+
+            // Build rivers that start from land!
+            processInlandRivers(rivers, done);
 
             // Update tail length counts.
             foreach (Node n in rivers)
@@ -359,8 +365,60 @@ namespace BezierRivers
 
                 rivers.Add(parent);
             }
+        }
 
+        // This function is a bit different. If a river is encountered while floodfilling the map that is not in the "done" hashset, the river must be crawled in both directions until it meets /any/ end.
+        // A river tree can then be created.
+        void processInlandRivers(List<Node> rivers, HashSet<Point> done)
+        {
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    Point coord = new Point(x, y);
+                    if (isRiver(coord) && !done.Contains(coord))
+                    {
+                        // It's a river, and it hasn't already been covered by the other processors.
+                        HashSet<Point> searchDone = new HashSet<Point>(); // A sort of "temporary" "done" HashSet.
+                        List<Point> working = new List<Point>();
+                        Node start = null;
 
+                        working.Add(coord);
+                        while (working.Count > 0)
+                        {
+                            Point current = working.First();
+                            working.Remove(current);
+                            searchDone.Add(current);
+                            int numNeighbors = 0;
+                            foreach (Point dP in neighbors)
+                            {
+                                Point neighbor = dP + (Size)current;
+                                if (isRiver(neighbor) && !searchDone.Contains(neighbor)) // Must check that we haven't already been to this river tile to prevent perpetual cycling.
+                                {
+                                    working.Add(neighbor);
+                                    numNeighbors++;
+                                }                                
+                            }
+                            if (numNeighbors == 0) // We have reached the end of the line.
+                            {
+                                start = new Node(current);
+                                break;
+                            }                         
+                        }
+
+                        if (start == null)
+                            throw new ArgumentNullException("Could not find starting point for node at " + coord.ToString());
+
+                        // Now that we have a starting place...
+                        Dictionary<Point, Node> treeWorking = new Dictionary<Point, Node>();
+                        foreach (Point dP in neighbors)
+                        {
+                            treeWorking[dP + (Size)start.center_coords] = start;
+                        }
+                        buildRiverTrees(done, treeWorking);
+
+                        rivers.Add(start);
+                    }
+                }
         }
 
         // Building the actual river tree is identical, whether we start from the ocean or a lake
@@ -454,7 +512,35 @@ namespace BezierRivers
                 recursiveTranslate(parent, parent._children_[i], depth);
         }
 
-        void render(processedResults pr, string filename, bool edges = false)
+        unsafe Dictionary<Point, int> DictionaryFromBitmap(Bitmap bmp)
+        {
+            Dictionary<Point, int> outarray = new Dictionary<Point, int>();
+            // Must lock the bitmap for faster access
+            var bitmapdata = bmp.LockBits(new Rectangle(0, 0, scale * width, scale * height), System.Drawing.Imaging.ImageLockMode.ReadOnly, bmp.PixelFormat);
+
+            // no copy
+            // Basically width*height*3
+            byte* p = (byte*)(void*)bitmapdata.Scan0.ToPointer();
+            int stride = bitmapdata.Stride;
+            int colorsize = System.Drawing.Bitmap.GetPixelFormatSize(bitmapdata.PixelFormat) / 8; // Divided by 8 because we're dealing with bytes
+
+            for (int y = 0; y < scale * height; y++)
+                for (int x = 0; x < scale * width; x++)
+                {
+                    byte* row = &p[y * stride];
+                    byte b = row[x*colorsize];
+                    byte g = row[x*colorsize + 1];
+                    byte r = row[x*colorsize + 2];
+                    Color pix = Color.FromArgb(r, g, b);
+                    if (pix == river_c)
+                        outarray[new Point(x, y)] = 1;
+                }
+            bmp.UnlockBits(bitmapdata);
+
+            return outarray;
+        }
+
+        Dictionary<Point,int> render(processedResults pr, string filename, bool edges = false)
         {
             List<Node> rivers = pr.rivers;
             List<Point> oceans = pr.oceans;
@@ -504,16 +590,16 @@ namespace BezierRivers
             }
 
             Bitmap output = new Bitmap(width * scale, height * scale);
-            Graphics g = Graphics.FromImage(output);
+            Graphics graphic = Graphics.FromImage(output);
             SolidBrush oceanbrush = new SolidBrush(ocean_c);
             SolidBrush landbrush = new SolidBrush(land_c);
             SolidBrush lakebrush = new SolidBrush(lake_c);
 
             // Draws the land
-            g.FillRectangle(landbrush, new Rectangle(0, 0, width * scale, height * scale));
+            graphic.FillRectangle(landbrush, new Rectangle(0, 0, width * scale, height * scale));
 
             // Draw rivers
-            Pen pen = new Pen(river_c, 5.0f);
+            Pen pen = new Pen(river_c, (float)scale/2.0f);
             Random rng = new Random();
             foreach (var pointlist in curvepoints)
             {
@@ -531,23 +617,26 @@ namespace BezierRivers
                 }
 
                 if (pointlist.Count == 1)
-                    g.DrawRectangle(pen, new Rectangle(points[0].X, points[0].Y, scale, scale));
+                    continue;//g.DrawRectangle(pen, new Rectangle(points[0].X, points[0].Y, scale, scale));
                 else
-                    g.DrawCurve(pen, points, 0.6f);
+                    graphic.DrawCurve(pen, points, 0.4f);
             }
 
             // Finally, draw the oceans and lakes over the rivers to "hide" the ends of the river.
             foreach (var point in oceans)
             {
-                g.FillRectangle(oceanbrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
+                graphic.FillRectangle(oceanbrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
             }
             foreach (var point in lakes)
             {
-                g.FillRectangle(lakebrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
+                graphic.FillRectangle(lakebrush, new Rectangle(point.X * scale, point.Y * scale, scale, scale));
             }
 
 
-            output.Save(filename);
+            output.Save(filename);    
+            var result = DictionaryFromBitmap(output);
+            output.Dispose();
+            return result;
         }
     }
 }
