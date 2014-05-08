@@ -34,7 +34,7 @@ namespace BezierRivers
         public int maxTailLength;
         public int maxLengthIndex; // The index of the tail that is the longest.
         public Point center_coords; // The coordinates of the current water tile, by center
-        public Point edge_coords; // The coordinates of the current water tile, by edge
+        public PointF edge_coords; // The coordinates of the current water tile, by edge
 
         // Travel the nodes, choosing the longest path.
         // Calling this on the base node effectively updates the entire tree.
@@ -187,7 +187,7 @@ namespace BezierRivers
 
             DateTime end1 = DateTime.Now;
             Console.WriteLine("Processing done. Elapsed time {0}ms", (end1 - start).TotalMilliseconds);
-            var arrayout = render(result, "output.png");
+            var arrayout = render(result, "output.png", true);
             DateTime end2 = DateTime.Now;
             Console.WriteLine("Output done. Elapsed time {0}ms", (end2 - end1).TotalMilliseconds);
             Console.ReadKey();
@@ -455,11 +455,11 @@ namespace BezierRivers
                 }
          }
 
-        static Point edgifyNodes(Node n1, Node n2)
+        static PointF edgifyNodes(Node n1, Node n2)
         {
-            Point p1 = n1.center_coords;
-            Point p2 = n2.center_coords;
-            Point p3 = new Point();
+            PointF p1 = n1.center_coords;
+            PointF p2 = n2.center_coords;
+            PointF p3 = new Point();
             if (p1.X == p2.X && p1.Y != p2.Y)
             {
                 p3.X = p1.X;
@@ -551,11 +551,11 @@ namespace BezierRivers
                 // They should sometimes be smaller branches of main rivers.
                 rendernodes.Add(r);
 
-            List<List<Point>> curvepoints = new List<List<Point>>(); // This is the result of this function, a list of list of points for use in drawCurve()
+            List<List<PointF>> curvepoints = new List<List<PointF>>(); // This is the result of this function, a list of list of points for use in drawCurve()
             // 
             while (rendernodes.Count > 0)
             {
-                List<Point> points = new List<Point>();
+                List<PointF> points = new List<PointF>();
                 Node current = rendernodes.First();
                 rendernodes.Remove(current);
 
@@ -603,7 +603,7 @@ namespace BezierRivers
             Random rng = new Random();
             foreach (var pointlist in curvepoints)
             {
-                Point[] points = pointlist.ToArray();
+                PointF[] points = pointlist.ToArray();
                 for (int i = 0; i < pointlist.Count; i++ ) // Scale coordinates
                 {
                     points[i].X *= scale;
