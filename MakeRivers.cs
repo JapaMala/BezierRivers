@@ -74,6 +74,24 @@ namespace BezierRivers
 
     class MakeRivers
     {
+        static void Main(string[] args)
+        {
+            /*Point p1, p2, p3, p4;
+            p1 = new Point(20, 20); // start
+            p2 = new Point(20, 80); // control points
+            p3 = new Point(80, 80);
+            p4 = new Point(80, 20); // end
+            
+
+            Bezier.rasterizeReference(p1, p2, p3, p4, "reference.png");
+            Bezier.rasterizeDirect(p1, p2, p3, p4, "direct.png");
+            Bezier.rasterizeSlope(p1, p2, p3, p4, "sloped.png");
+            return;*/
+            MakeRivers mr = new MakeRivers("testinput.png");
+            mr.makeRivers();
+            Console.ReadKey();
+        }
+
         // Define colors
         static Color brook_c = Color.FromArgb(0, 255, 255);
         static Color stream_c = Color.FromArgb(0, 224, 255);
@@ -144,13 +162,6 @@ namespace BezierRivers
         int[,] input;
         int scale;
         int width, height;
-
-        static void Main(string[] args)
-        {
-            MakeRivers mr = new MakeRivers("testinput.png");
-            mr.makeRivers();
-            Console.ReadKey();
-        }
 
         struct processedResults
         {
@@ -575,8 +586,18 @@ namespace BezierRivers
                             newparent.center_coords = current.center_coords;
                             newparent.edge_coords = current.edge_coords;
                             newparent.insertChild(current._children_[i]);
-                            newparent.getMaxTailLength();
-                            rendernodes.Add(newparent);
+
+                            // Extending new river tree size by 2 for smoother rivers.
+                            if (current.parent != null)
+                            {
+                                Node newnewparent = new Node();
+                                newnewparent.center_coords = current.parent.center_coords;
+                                newnewparent.edge_coords = current.edge_coords;
+                                newnewparent.insertChild(newparent);
+                                rendernodes.Add(newnewparent);
+                            }
+                            else
+                                rendernodes.Add(newparent);
                         }
                     }
                     current = current._children_[largestIndex]; // Finally, change the current to point to the new node.
@@ -602,19 +623,33 @@ namespace BezierRivers
             // Draw rivers
             Pen pen = new Pen(river_c, (float)scale/2.0f);
             Random rng = new Random();
+
+            Dictionary<PointF, PointF> RandPointFromPoint = new Dictionary<PointF, PointF>();
+
             foreach (var pointlist in curvepoints)
             {
                 PointF[] points = pointlist.ToArray();
                 for (int i = 0; i < pointlist.Count; i++ ) // Scale coordinates
                 {
-                    points[i].X *= scale;
-                    points[i].X += scale/2;
-                    points[i].Y *= scale;
-                    points[i].Y += scale/2;
+                    if (RandPointFromPoint.ContainsKey(points[i]))
+                        points[i] = RandPointFromPoint[points[i]];
+                    else
+                    {
+                        PointF oldpoint = points[i];
 
-                    // Experimental: Add noise to coordinates.
-                    points[i].X += rng.Next(-scale / 4, scale / 4);
-                    points[i].Y += rng.Next(-scale / 4, scale / 4);
+                        points[i].X *= scale;
+                        points[i].X += scale / 2;
+                        points[i].Y *= scale;
+                        points[i].Y += scale / 2;
+
+                        // Experimental: Add noise to coordinates.
+                        points[i].X += rng.Next(-scale / 4, scale / 4);
+                        points[i].Y += rng.Next(-scale / 4, scale / 4);
+
+                        PointF newpoint = points[i];
+                        RandPointFromPoint[oldpoint] = newpoint;
+                    }
+                    
                 }
 
                 if (pointlist.Count == 1)
