@@ -149,6 +149,7 @@ namespace BezierRivers
         {
             MakeRivers mr = new MakeRivers("testinput.png");
             mr.makeRivers();
+            Console.ReadKey();
         }
 
         struct processedResults
