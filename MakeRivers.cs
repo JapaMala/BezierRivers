@@ -74,24 +74,6 @@ namespace BezierRivers
 
     class MakeRivers
     {
-        static void Main(string[] args)
-        {
-            /*Point p1, p2, p3, p4;
-            p1 = new Point(20, 20); // start
-            p2 = new Point(20, 80); // control points
-            p3 = new Point(80, 80);
-            p4 = new Point(80, 20); // end
-            
-
-            Bezier.rasterizeReference(p1, p2, p3, p4, "reference.png");
-            Bezier.rasterizeDirect(p1, p2, p3, p4, "direct.png");
-            Bezier.rasterizeSlope(p1, p2, p3, p4, "sloped.png");
-            return;*/
-            MakeRivers mr = new MakeRivers("testinput.png");
-            mr.makeRivers();
-            Console.ReadKey();
-        }
-
         // Define colors
         static Color brook_c = Color.FromArgb(0, 255, 255);
         static Color stream_c = Color.FromArgb(0, 224, 255);
@@ -143,7 +125,7 @@ namespace BezierRivers
 
 
         // scale is the ratio of embark tiles to blocks.
-        MakeRivers(string inputfilename, int Scale = 8)
+        public MakeRivers(string inputfilename, int Scale = 8)
         {
             Bitmap inputFile = new Bitmap(inputfilename);
             width = inputFile.Width;
@@ -192,7 +174,7 @@ namespace BezierRivers
             return input[coords.X, coords.Y] == IntFromName["lake"];
         }
 
-        void makeRivers()
+        public void makeRivers()
         {
             DateTime start = DateTime.Now;
             var result = process();
@@ -669,10 +651,43 @@ namespace BezierRivers
             }
 
 
-            output.Save(filename);    
+            output.Save(filename);
             var result = DictionaryFromBitmap(output);
             output.Dispose();
             return result;
+        }
+        static bool PointInPolygon(Point p, Point[] poly)
+        {
+            Point p1, p2;
+            bool inside = false;
+            if (poly.Length < 3)
+            {
+                return inside;
+            }
+            Point oldPoint = new Point(
+                poly[poly.Length - 1].X, poly[poly.Length - 1].Y);
+            for (int i = 0; i < poly.Length; i++)
+            {
+                Point newPoint = new Point(poly[i].X, poly[i].Y);
+                if (newPoint.X > oldPoint.X)
+                {
+                    p1 = oldPoint;
+                    p2 = newPoint;
+                }
+                else
+                {
+                    p1 = newPoint;
+                    p2 = oldPoint;
+                }
+                if ((newPoint.X < p.X) == (p.X <= oldPoint.X)
+                    && ((long)p.Y - (long)p1.Y) * (long)(p2.X - p1.X)
+                     < ((long)p2.Y - (long)p1.Y) * (long)(p.X - p1.X))
+                {
+                    inside = !inside;
+                }
+                oldPoint = newPoint;
+            }
+            return inside;
         }
     }
 }
