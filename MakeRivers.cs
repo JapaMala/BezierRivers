@@ -145,12 +145,6 @@ namespace BezierRivers
         int scale;
         int width, height;
 
-        static void Main(string[] args)
-        {
-            MakeRivers mr = new MakeRivers("testinput.png");
-            mr.makeRivers();
-        }
-
         struct processedResults
         {
             public List<Node> rivers;
